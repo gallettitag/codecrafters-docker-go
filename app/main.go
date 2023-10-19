@@ -122,33 +122,44 @@ func extractTar(src, dest string) error {
 }
 
 func pullLayers(image, token, digest string) (string, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf(getLayerURL, image, digest), nil)
+	resp, err := downloadLayer(image, token, digest)
 	if err != nil {
 		return "", err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Error getting layer")
 	}
 	defer resp.Body.Close()
 
-	layerFile, err := os.Create(fmt.Sprintf("%s.tar.gz", digest[7:]))
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("error downloading layer (status: %s)", resp.Status)
+	}
+
+	return saveLayerToFile(resp.Body, digest)
+}
+
+func saveLayerToFile(body io.ReadCloser, digest string) (string, error) {
+	filename := fmt.Sprintf("%s.tar.gz", digest[7:])
+	layerFile, err := os.Create(filename)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error creating file %s: %w", filename, err)
 	}
 	defer layerFile.Close()
 
-	_, err = io.Copy(layerFile, resp.Body)
+	_, err = io.Copy(layerFile, body)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error writing file %s: %w", filename, err)
 	}
 
-	return layerFile.Name(), nil
+	return filename, nil
+}
+
+func downloadLayer(image, token, digest string) (*http.Response, error) {
+	req, err := http.NewRequest("GET", fmt.Sprintf(getLayerURL, image, digest), nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creatign request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+
+	return httpClient.Do(req)
 }
 
 func getManifest(image, token, tag string) (*ManifestResponse, error) {
@@ -165,9 +176,7 @@ func getManifest(image, token, tag string) (*ManifestResponse, error) {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Error getting manifest. Status: %s. Response: %s", resp.Status, string(bodyBytes))
-		//return nil, fmt.Errorf("Error getting manifest")
+		return nil, fmt.Errorf("error getting manifest. Status: %s", resp.Status)
 	}
 	defer resp.Body.Close()
 
@@ -187,7 +196,7 @@ func getToken(image string) (string, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Error getting token")
+		return "", fmt.Errorf("error getting token. status: %s", resp.Status)
 	}
 	defer resp.Body.Close()
 	var token TokenResponse
