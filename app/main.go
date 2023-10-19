@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 package main
 
 import (
@@ -8,9 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
-	// Uncomment this block to pass the first stage!
-	// "os"
-	// "os/exec"
 )
 
 // Usage: your_docker.sh run <image> <command> <arg1> <arg2> ...
@@ -27,6 +27,9 @@ func main() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWPID,
+	}
 	err = cmd.Run()
 	if err != nil {
 		handleError(err)
